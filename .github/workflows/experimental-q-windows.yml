@@ -7,10 +7,11 @@ on:
 
 permissions:
   contents: read
+  statuses: write
 
 concurrency:
   group: experimental-q-windows-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   package:
@@ -21,6 +22,26 @@ jobs:
       PYTHONUTF8: "1"
       RUST_BACKTRACE: "1"
     steps:
+      - name: Publish auditable run identity
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $Headers = @{
+            Authorization = "Bearer $env:GH_TOKEN"
+            Accept = "application/vnd.github+json"
+            "X-GitHub-Api-Version" = "2022-11-28"
+          }
+          $Body = @{
+            state = "pending"
+            target_url = "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            description = "Experimental Q Windows build is running"
+            context = "experimental-q/windows"
+          } | ConvertTo-Json
+          Invoke-RestMethod -Method Post -Headers $Headers -ContentType "application/json" `
+            -Uri "${{ github.api_url }}/repos/${{ github.repository }}/statuses/${{ github.sha }}" `
+            -Body $Body | Out-Null
+
       - name: Check out the reviewed source capsule
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
 
@@ -153,3 +174,30 @@ jobs:
             ${{ runner.temp }}/experimental-q-installer-smoke/*.log
           if-no-files-found: ignore
           retention-days: 7
+
+      - name: Publish final build status
+        if: always()
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $State = if ("${{ job.status }}" -eq "success") { "success" } else { "failure" }
+          $Description = if ($State -eq "success") {
+            "Experimental Q Windows installers passed"
+          } else {
+            "Experimental Q Windows build failed"
+          }
+          $Headers = @{
+            Authorization = "Bearer $env:GH_TOKEN"
+            Accept = "application/vnd.github+json"
+            "X-GitHub-Api-Version" = "2022-11-28"
+          }
+          $Body = @{
+            state = $State
+            target_url = "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            description = $Description
+            context = "experimental-q/windows"
+          } | ConvertTo-Json
+          Invoke-RestMethod -Method Post -Headers $Headers -ContentType "application/json" `
+            -Uri "${{ github.api_url }}/repos/${{ github.repository }}/statuses/${{ github.sha }}" `
+            -Body $Body | Out-Null
