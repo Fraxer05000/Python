@@ -65,6 +65,8 @@ jobs:
               [Parameter(Mandatory)][string]$New,
               [Parameter(Mandatory)][string]$Label
             )
+            $Old = [Regex]::Replace($Old, '\r\n', [string][char]10)
+            $New = [Regex]::Replace($New, '\r\n', [string][char]10)
             if (-not $Text.Contains($Old)) {
               throw "RC19 patch anchor was not found: $Label"
             }
