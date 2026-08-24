@@ -53,6 +53,35 @@ jobs:
             throw "Reviewed Experimental Q source was not extracted."
           }
 
+
+      - name: Apply reviewed RC15 NSIS uninstall synchronization patch
+        shell: pwsh
+        run: |
+          $SmokePath = "experimental-q/scripts/smoke_test_windows_installers.ps1"
+          $Smoke = Get-Content -LiteralPath $SmokePath -Raw -Encoding UTF8
+          $OldInvoke = 'Invoke-ProcessWithTimeout $Uninstaller.FullName @("/S") 300'
+          $NewInvoke = 'Invoke-ProcessWithTimeout $Uninstaller.FullName @("/S", "_?=$NsisRoot") 300'
+          if (([regex]::Matches($Smoke, [regex]::Escape($OldInvoke))).Count -ne 1) {
+            throw "RC15 smoke patch precondition failed."
+          }
+          Set-Content -LiteralPath $SmokePath -Value $Smoke.Replace($OldInvoke, $NewInvoke) -Encoding UTF8
+
+          $TestPath = "experimental-q/tests/packaging/test_windows_layout.py"
+          $Tests = Get-Content -LiteralPath $TestPath -Raw -Encoding UTF8
+          $Marker = '    assert "Wait-InstallerRemoval $NsisApplication.FullName" in script'
+          $Assertion = '    assert ''@("/S", "_?=$NsisRoot") 300'' in script'
+          if (([regex]::Matches($Tests, [regex]::Escape($Marker))).Count -ne 1 -or $Tests.Contains($Assertion)) {
+            throw "RC15 packaging-test patch precondition failed."
+          }
+          Set-Content -LiteralPath $TestPath -Value $Tests.Replace($Marker, $Marker + [Environment]::NewLine + $Assertion) -Encoding UTF8
+
+          $SourceCapsuleRoot = Join-Path $env:RUNNER_TEMP "experimental-q-source-capsule"
+          if (Test-Path -LiteralPath $SourceCapsuleRoot) {
+            Remove-Item -LiteralPath $SourceCapsuleRoot -Recurse -Force
+          }
+          New-Item -ItemType Directory -Path $SourceCapsuleRoot | Out-Null
+          Copy-Item -LiteralPath "experimental-q" -Destination $SourceCapsuleRoot -Recurse
+
       - name: Install Python 3.12
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
@@ -145,6 +174,94 @@ jobs:
         working-directory: experimental-q
         run: ./scripts/smoke_test_windows_installers.ps1
 
+
+      - name: Assemble verified RC15 source capsule
+        shell: pwsh
+        run: |
+          $SourceRoot = Join-Path $env:RUNNER_TEMP "experimental-q-source-capsule/experimental-q"
+          Copy-Item -LiteralPath "experimental-q/Cargo.lock" -Destination (Join-Path $SourceRoot "Cargo.lock") -Force
+          $RunUrl = "$env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID"
+
+          $Compatibility = @"
+          # Experimental Q 0.3.0 — Compatibility and verification report
+
+          Date: 2026-08-24 UTC
+
+          ## Result
+
+          The canonical Windows x64 workflow at $RunUrl produced NSIS and MSI
+          installers and passed build, native-model, install, launch-in-OFF,
+          process-cleanup, no-autostart, uninstall, and workspace-preservation gates.
+
+          ## Executed checks
+
+          - Ruff clean; strict mypy clean over 102 source files.
+          - 36/36 Python unit, integration, security, and packaging tests.
+          - TypeScript strict typecheck, 1/1 Vitest, and Vite production build.
+          - Rust format, Clippy with warnings denied, and 6/6 supervisor tests.
+          - 24/24 static packaging gates.
+          - Pinned llama.cpp GGUF tool-call inference and Whisper JSON WAV smoke tests.
+          - NSIS and MSI install/uninstall smoke on GitHub windows-2022 x64.
+
+          ## Compatibility and privilege boundary
+
+          Declared target: Windows 10 build 19041 or later and Windows 11, x64.
+          Observed CI target: Windows Server 2022 x64, build 20348.
+          Installers are per-machine and require UAC; desktop, backend, model, and
+          controllers run without administrative privileges. Q starts OFF and no
+          Windows startup entry is created. Dependencies and models are bundled offline.
+
+          ## Known limitations
+
+          This build is unsigned because no Authenticode certificate was supplied, so
+          Windows SmartScreen may warn. Physical microphone hardware was not available
+          in CI; the local Whisper WAV path passed. A multi-device Windows 10/11 hardware
+          matrix and M15 hardening remain separate release gates.
+          "@
+          Set-Content -LiteralPath (Join-Path $SourceRoot "docs/COMPATIBILITY_REPORT.md") -Value $Compatibility -Encoding UTF8
+
+          $Acceptance = @"
+          # M1–M14 implementation report
+
+          ## Milestone
+
+          Architecture 3.0 milestones M1 through M14, Experimental Q 0.3.0.
+
+          ## Implementation
+
+          Supervisor lifecycle, llama.cpp/GGUF inference, canonical controller tools,
+          policy/confirmation/audit, authorized workspace scanning, chat, scientific
+          controllers, documents, local memory/RAG, policy-gated research, bounded
+          workers, Git/connectors, Notebook, local microphone/Whisper, and per-machine
+          NSIS/MSI packaging are implemented under the Architecture 3.0 boundaries.
+
+          ## Tests
+
+          The canonical Windows workflow at $RunUrl passed 36 Python tests, strict
+          mypy over 102 files, Ruff, frontend typecheck/build and 1 Vitest, 6 Rust
+          supervisor tests, 24 packaging gates, native GGUF/Whisper smoke tests, and
+          install-launch-OFF-uninstall tests for both NSIS and MSI.
+
+          ## Known limitations
+
+          The bundled 1.5B Q4 model favors local compatibility over large-model quality.
+          The packages are not Authenticode-signed without a real protected certificate.
+          Physical microphone capture and a multi-device Windows matrix remain separate
+          from the deterministic audio and installer gates. R support remains optional.
+
+          ## Next dependency
+
+          Architecture 3.0 M15 hardening, Authenticode signing, and representative
+          Windows 10/11 hardware and physical-microphone validation.
+          "@
+          Set-Content -LiteralPath (Join-Path $SourceRoot "docs/M1_M14_ACCEPTANCE_REPORT.md") -Value $Acceptance -Encoding UTF8
+
+          $SourceArchive = Join-Path $env:RUNNER_TEMP "ExperimentalQ-0.3.0-source.zip"
+          if (Test-Path -LiteralPath $SourceArchive) {
+            Remove-Item -LiteralPath $SourceArchive -Force
+          }
+          Compress-Archive -LiteralPath $SourceRoot -DestinationPath $SourceArchive -CompressionLevel Optimal
+
       - name: Upload one-click NSIS installer
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
@@ -173,6 +290,15 @@ jobs:
             experimental-q/vendor/dependency-provenance.json
             experimental-q/vendor/runtime-sources.lock.json
             experimental-q/Cargo.lock
+          if-no-files-found: error
+          retention-days: 14
+
+
+      - name: Upload verified RC15 source capsule
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ExperimentalQ-0.3.0-source
+          path: ${{ runner.temp }}/ExperimentalQ-0.3.0-source.zip
           if-no-files-found: error
           retention-days: 14
 
