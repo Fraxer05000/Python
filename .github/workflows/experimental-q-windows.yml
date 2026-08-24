@@ -70,146 +70,154 @@ jobs:
             }
             return $Text.Replace($Old, $New)
           }
-
+          
           $ScriptPath = "experimental-q\scripts\smoke_test_windows_installers.ps1"
-          $Script = (Get-Content -LiteralPath $ScriptPath -Raw -Encoding UTF8).Replace("`r`n", "`n")
-
+          $Script = Get-Content -LiteralPath $ScriptPath -Raw -Encoding UTF8
+          $Script = [Regex]::Replace($Script, '\r\n', [string][char]10)
+          
           $Old = @'
-    [Parameter(Mandatory)][string]$ApplicationPath,
-    [int]$TimeoutSeconds = 120
-'@
+              [Parameter(Mandatory)][string]$ApplicationPath,
+              [int]$TimeoutSeconds = 120
+          '@
           $New = @'
-    [Parameter(Mandatory)][string]$ApplicationPath,
-    [Parameter(Mandatory)][string]$InstallRoot,
-    [int]$TimeoutSeconds = 120
-'@
+              [Parameter(Mandatory)][string]$ApplicationPath,
+              [Parameter(Mandatory)][string]$InstallRoot,
+              [int]$TimeoutSeconds = 120
+          '@
           $Script = Replace-Required $Script $Old $New "installer-removal parameters"
-
+          
           $Old = @'
-    $ApplicationPresent = Test-Path -LiteralPath $ApplicationPath -PathType Leaf
-    if ($Entries.Count -eq 0 -and -not $ApplicationPresent) {
-'@
+              $ApplicationPresent = Test-Path -LiteralPath $ApplicationPath -PathType Leaf
+              if ($Entries.Count -eq 0 -and -not $ApplicationPresent) {
+          '@
           $New = @'
-    $ApplicationPresent = Test-Path -LiteralPath $ApplicationPath -PathType Leaf
-    $InstallRootPresent = Test-Path -LiteralPath $InstallRoot -PathType Container
-    if ($Entries.Count -eq 0 -and -not $ApplicationPresent -and -not $InstallRootPresent) {
-'@
+              $ApplicationPresent = Test-Path -LiteralPath $ApplicationPath -PathType Leaf
+              $InstallRootPresent = Test-Path -LiteralPath $InstallRoot -PathType Container
+              if ($Entries.Count -eq 0 -and -not $ApplicationPresent -and -not $InstallRootPresent) {
+          '@
           $Script = Replace-Required $Script $Old $New "installer-removal state"
-
+          
           $Old = '  throw "Experimental Q uninstall did not complete within $TimeoutSeconds seconds; executable_present=$ApplicationPresent; remaining_registrations=$RegistrationJson"'
           $New = '  throw "Experimental Q uninstall did not complete within $TimeoutSeconds seconds; executable_present=$ApplicationPresent; install_root_present=$InstallRootPresent; remaining_registrations=$RegistrationJson"'
           $Script = Replace-Required $Script $Old $New "installer-removal error"
-
+          
           $Old = '  param([Parameter(Mandatory)][IO.FileInfo]$Application)'
           $New = @'
-  param(
-    [Parameter(Mandatory)][IO.FileInfo]$Application,
-    [int]$BackendStartupTimeoutSeconds = 120
-  )
-'@
+            param(
+              [Parameter(Mandatory)][IO.FileInfo]$Application,
+              [int]$BackendStartupTimeoutSeconds = 120
+            )
+          '@
           $Script = Replace-Required $Script $Old $New "backend startup parameters"
-
+          
           $Old = @'
-    Start-Sleep -Seconds 15
-    if ($Process.HasExited) {
-      throw "Installed desktop exited during its launch smoke test with $($Process.ExitCode)."
-    }
-    if (-not (Get-Process -Name "q-backend" -ErrorAction SilentlyContinue)) {
-      throw "Installed desktop did not start its packaged backend sidecar."
-    }
-    if (Get-Process -Name "llama-server" -ErrorAction SilentlyContinue) {
-      throw "Installed desktop auto-started Q; launch must remain OFF."
-    }
-'@
+              Start-Sleep -Seconds 15
+              if ($Process.HasExited) {
+                throw "Installed desktop exited during its launch smoke test with $($Process.ExitCode)."
+              }
+              if (-not (Get-Process -Name "q-backend" -ErrorAction SilentlyContinue)) {
+                throw "Installed desktop did not start its packaged backend sidecar."
+              }
+              if (Get-Process -Name "llama-server" -ErrorAction SilentlyContinue) {
+                throw "Installed desktop auto-started Q; launch must remain OFF."
+              }
+          '@
           $New = @'
-    $BackendDeadline = [DateTime]::UtcNow.AddSeconds($BackendStartupTimeoutSeconds)
-    $BackendProcesses = @()
-    do {
-      if ($Process.HasExited) {
-        throw "Installed desktop exited during its launch smoke test with $($Process.ExitCode)."
-      }
-      if (Get-Process -Name "llama-server" -ErrorAction SilentlyContinue) {
-        throw "Installed desktop auto-started Q; launch must remain OFF."
-      }
-      $BackendProcesses = @(Get-Process -Name "q-backend" -ErrorAction SilentlyContinue)
-      if ($BackendProcesses.Count -gt 0) {
-        break
-      }
-      Start-Sleep -Seconds 1
-    } while ([DateTime]::UtcNow -lt $BackendDeadline)
-    if ($BackendProcesses.Count -eq 0) {
-      $WorkspaceFiles = @(Get-ChildItem -LiteralPath $Workspace -Recurse -File -ErrorAction SilentlyContinue |
-        Select-Object -First 30 -ExpandProperty FullName)
-      throw "Installed desktop did not start its packaged backend sidecar within $BackendStartupTimeoutSeconds seconds; desktop_pid=$($Process.Id); workspace_files=$($WorkspaceFiles -join ', ')."
-    }
-    Start-Sleep -Seconds 5
-    $StableBackendProcesses = @(Get-Process -Name "q-backend" -ErrorAction SilentlyContinue)
-    if ($StableBackendProcesses.Count -eq 0) {
-      throw "Installed packaged backend sidecar exited before the five-second stability check."
-    }
-    if (Get-Process -Name "llama-server" -ErrorAction SilentlyContinue) {
-      throw "Installed desktop auto-started Q; launch must remain OFF."
-    }
-'@
+              $BackendDeadline = [DateTime]::UtcNow.AddSeconds($BackendStartupTimeoutSeconds)
+              $BackendProcesses = @()
+              do {
+                if ($Process.HasExited) {
+                  throw "Installed desktop exited during its launch smoke test with $($Process.ExitCode)."
+                }
+                if (Get-Process -Name "llama-server" -ErrorAction SilentlyContinue) {
+                  throw "Installed desktop auto-started Q; launch must remain OFF."
+                }
+                $BackendProcesses = @(Get-Process -Name "q-backend" -ErrorAction SilentlyContinue)
+                if ($BackendProcesses.Count -gt 0) {
+                  break
+                }
+                Start-Sleep -Seconds 1
+              } while ([DateTime]::UtcNow -lt $BackendDeadline)
+              if ($BackendProcesses.Count -eq 0) {
+                $WorkspaceFiles = @(Get-ChildItem -LiteralPath $Workspace -Recurse -File -ErrorAction SilentlyContinue |
+                  Select-Object -First 30 -ExpandProperty FullName)
+                throw "Installed desktop did not start its packaged backend sidecar within $BackendStartupTimeoutSeconds seconds; desktop_pid=$($Process.Id); workspace_files=$($WorkspaceFiles -join ', ')."
+              }
+              Start-Sleep -Seconds 5
+              $StableBackendProcesses = @(Get-Process -Name "q-backend" -ErrorAction SilentlyContinue)
+              if ($StableBackendProcesses.Count -eq 0) {
+                throw "Installed packaged backend sidecar exited before the five-second stability check."
+              }
+              if (Get-Process -Name "llama-server" -ErrorAction SilentlyContinue) {
+                throw "Installed desktop auto-started Q; launch must remain OFF."
+              }
+          '@
           $Script = Replace-Required $Script $Old $New "bounded backend startup"
-
+          
           $Old = @'
-# Tauri's NSIS template only enables SetAutoClose for passive (/P) and update
-# uninstalls. Silent (/S) suppresses the UI but leaves its hidden InstFiles
-# page open indefinitely. _?= keeps this process in the foreground so the
-# smoke test observes the real exit code and post-uninstall state.
-Invoke-ProcessWithTimeout $Uninstaller.FullName @("/P", "_?=$NsisRoot") 900
-Wait-InstallerRemoval $NsisApplication.FullName
-'@
+          # Tauri's NSIS template only enables SetAutoClose for passive (/P) and update
+          # uninstalls. Silent (/S) suppresses the UI but leaves its hidden InstFiles
+          # page open indefinitely. _?= keeps this process in the foreground so the
+          # smoke test observes the real exit code and post-uninstall state.
+          Invoke-ProcessWithTimeout $Uninstaller.FullName @("/P", "_?=$NsisRoot") 900
+          Wait-InstallerRemoval $NsisApplication.FullName
+          '@
           $New = @'
-# Tauri's NSIS template only enables SetAutoClose for passive (/P) and update
-# uninstalls. NSIS normally copies the uninstaller to a temporary directory so
-# it can remove the original and $INSTDIR. Reproduce that documented flow while
-# using _?= to wait for the real exit code instead of the short-lived launcher.
-$UninstallerRunner = Join-Path $SmokeRoot "nsis-uninstaller-runner.exe"
-Copy-Item -LiteralPath $Uninstaller.FullName -Destination $UninstallerRunner -Force
-try {
-  Invoke-ProcessWithTimeout $UninstallerRunner @("/P", "_?=$NsisRoot") 900
-}
-finally {
-  Remove-Item -LiteralPath $UninstallerRunner -Force -ErrorAction SilentlyContinue
-}
-Wait-InstallerRemoval $NsisApplication.FullName $NsisRoot
-'@
+          # Tauri's NSIS template only enables SetAutoClose for passive (/P) and update
+          # uninstalls. NSIS normally copies the uninstaller to a temporary directory so
+          # it can remove the original and $INSTDIR. Reproduce that documented flow while
+          # using _?= to wait for the real exit code instead of the short-lived launcher.
+          $UninstallerRunner = Join-Path $SmokeRoot "nsis-uninstaller-runner.exe"
+          Copy-Item -LiteralPath $Uninstaller.FullName -Destination $UninstallerRunner -Force
+          try {
+            Invoke-ProcessWithTimeout $UninstallerRunner @("/P", "_?=$NsisRoot") 900
+          }
+          finally {
+            Remove-Item -LiteralPath $UninstallerRunner -Force -ErrorAction SilentlyContinue
+          }
+          Wait-InstallerRemoval $NsisApplication.FullName $NsisRoot
+          '@
           $Script = Replace-Required $Script $Old $New "canonical NSIS uninstall"
-
+          
           $Script = Replace-Required $Script 'Wait-InstallerRemoval $MsiApplication.FullName' 'Wait-InstallerRemoval $MsiApplication.FullName $EffectiveMsiRoot' "MSI root removal"
           $Script = Replace-Required $Script '  nsis = [ordered]@{ install = "ok"; uac_scope = "per_machine"; launch_q_state = "OFF"; uninstall = "ok" }' '  nsis = [ordered]@{ install = "ok"; uac_scope = "per_machine"; launch_q_state = "OFF"; uninstall = "ok"; install_root_removed = $true }' "NSIS evidence"
           $Script = Replace-Required $Script '  msi = [ordered]@{ install = "ok"; uac_scope = "per_machine"; layout = "ok"; launch_q_state = "OFF"; uninstall = "ok" }' '  msi = [ordered]@{ install = "ok"; uac_scope = "per_machine"; layout = "ok"; launch_q_state = "OFF"; uninstall = "ok"; install_root_removed = $true }' "MSI evidence"
           Set-Content -LiteralPath $ScriptPath -Value $Script -Encoding UTF8 -NoNewline
-
+          
           $TestPath = "experimental-q\tests\packaging\test_windows_layout.py"
-          $Test = (Get-Content -LiteralPath $TestPath -Raw -Encoding UTF8).Replace("`r`n", "`n")
-          $Test = Replace-Required $Test '    assert "Test-ApplicationStartsOff $MsiApplication" in script' @'
-    assert "Test-ApplicationStartsOff $MsiApplication" in script
-    assert "$BackendStartupTimeoutSeconds = 120" in script
-    assert "$BackendDeadline = [DateTime]::UtcNow.AddSeconds" in script
-    assert "five-second stability check" in script
-'@ "backend startup tests"
-          $Old = @'
-    assert "Wait-InstallerRemoval $NsisApplication.FullName" in script
-    assert "Wait-InstallerRemoval $MsiApplication.FullName" in script
-    assert '@("/P", "_?=$NsisRoot") 900' in script
-'@
+          $Test = Get-Content -LiteralPath $TestPath -Raw -Encoding UTF8
+          $Test = [Regex]::Replace($Test, '\r\n', [string][char]10)
+          $Old = '    assert "Test-ApplicationStartsOff $MsiApplication" in script'
           $New = @'
-    assert "Wait-InstallerRemoval $NsisApplication.FullName $NsisRoot" in script
-    assert "Wait-InstallerRemoval $MsiApplication.FullName $EffectiveMsiRoot" in script
-    assert 'Copy-Item -LiteralPath $Uninstaller.FullName' in script
-    assert '$UninstallerRunner @("/P", "_?=$NsisRoot") 900' in script
-'@
+              assert "Test-ApplicationStartsOff $MsiApplication" in script
+              assert "$BackendStartupTimeoutSeconds = 120" in script
+              assert "$BackendDeadline = [DateTime]::UtcNow.AddSeconds" in script
+              assert "five-second stability check" in script
+          '@
+          $Test = Replace-Required $Test $Old $New "backend startup tests"
+          
+          $Old = @'
+              assert "Wait-InstallerRemoval $NsisApplication.FullName" in script
+              assert "Wait-InstallerRemoval $MsiApplication.FullName" in script
+              assert '@("/P", "_?=$NsisRoot") 900' in script
+          '@
+          $New = @'
+              assert "Wait-InstallerRemoval $NsisApplication.FullName $NsisRoot" in script
+              assert "Wait-InstallerRemoval $MsiApplication.FullName $EffectiveMsiRoot" in script
+              assert 'Copy-Item -LiteralPath $Uninstaller.FullName' in script
+              assert '$UninstallerRunner @("/P", "_?=$NsisRoot") 900' in script
+          '@
           $Test = Replace-Required $Test $Old $New "canonical uninstall tests"
-          $Test = Replace-Required $Test '    assert "uninstall did not complete within $TimeoutSeconds seconds" in script' @'
-    assert "uninstall did not complete within $TimeoutSeconds seconds" in script
-    assert "install_root_present=$InstallRootPresent" in script
-    assert "install_root_removed = $true" in script
-'@ "root-removal tests"
+          
+          $Old = '    assert "uninstall did not complete within $TimeoutSeconds seconds" in script'
+          $New = @'
+              assert "uninstall did not complete within $TimeoutSeconds seconds" in script
+              assert "install_root_present=$InstallRootPresent" in script
+              assert "install_root_removed = $true" in script
+          '@
+          $Test = Replace-Required $Test $Old $New "root-removal tests"
           Set-Content -LiteralPath $TestPath -Value $Test -Encoding UTF8 -NoNewline
-
+          
           if ((Get-Content -LiteralPath $ScriptPath -Raw) -notmatch 'BackendStartupTimeoutSeconds = 120') {
             throw "RC19 bounded backend startup patch was not applied."
           }
