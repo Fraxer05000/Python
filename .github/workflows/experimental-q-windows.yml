@@ -48,7 +48,7 @@ jobs:
       - name: Extract Experimental Q source
         shell: pwsh
         run: |
-          Expand-Archive -LiteralPath "ExperimentalQ-0.3.0-source-rc13.zip" -DestinationPath $env:GITHUB_WORKSPACE -Force
+          Expand-Archive -LiteralPath "ExperimentalQ-0.3.0-source-rc14.zip" -DestinationPath $env:GITHUB_WORKSPACE -Force
           if (-not (Test-Path -LiteralPath "experimental-q\scripts\build_windows.ps1" -PathType Leaf)) {
             throw "Reviewed Experimental Q source was not extracted."
           }
