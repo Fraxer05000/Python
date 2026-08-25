@@ -1,4 +1,4 @@
-name: Experimental Q Windows RC19 one-click build
+name: Experimental Q Windows RC20 one-click build
 
 on:
   push:
@@ -48,194 +48,18 @@ jobs:
       - name: Extract Experimental Q source
         shell: pwsh
         run: |
-          Expand-Archive -LiteralPath "ExperimentalQ-0.3.0-source-rc17.zip" -DestinationPath $env:GITHUB_WORKSPACE -Force
+          Expand-Archive -LiteralPath "ExperimentalQ-0.3.0-source-rc20.zip" -DestinationPath $env:GITHUB_WORKSPACE -Force
           if (-not (Test-Path -LiteralPath "experimental-q\scripts\build_windows.ps1" -PathType Leaf)) {
             throw "Reviewed Experimental Q source was not extracted."
           }
 
 
 
-      - name: Apply reviewed RC19 acceptance corrections
-        shell: pwsh
-        run: |
-          function Replace-Required {
-            param(
-              [Parameter(Mandatory)][string]$Text,
-              [Parameter(Mandatory)][string]$Old,
-              [Parameter(Mandatory)][string]$New,
-              [Parameter(Mandatory)][string]$Label
-            )
-            $Old = [Regex]::Replace($Old, '\r\n', [string][char]10)
-            $New = [Regex]::Replace($New, '\r\n', [string][char]10)
-            if (-not $Text.Contains($Old)) {
-              throw "RC19 patch anchor was not found: $Label"
-            }
-            return $Text.Replace($Old, $New)
-          }
-          
-          $ScriptPath = "experimental-q\scripts\smoke_test_windows_installers.ps1"
-          $Script = Get-Content -LiteralPath $ScriptPath -Raw -Encoding UTF8
-          $Script = [Regex]::Replace($Script, '\r\n', [string][char]10)
-          
-          $Old = @'
-              [Parameter(Mandatory)][string]$ApplicationPath,
-              [int]$TimeoutSeconds = 120
-          '@
-          $New = @'
-              [Parameter(Mandatory)][string]$ApplicationPath,
-              [Parameter(Mandatory)][string]$InstallRoot,
-              [int]$TimeoutSeconds = 120
-          '@
-          $Script = Replace-Required $Script $Old $New "installer-removal parameters"
-          
-          $Old = @'
-              $ApplicationPresent = Test-Path -LiteralPath $ApplicationPath -PathType Leaf
-              if ($Entries.Count -eq 0 -and -not $ApplicationPresent) {
-          '@
-          $New = @'
-              $ApplicationPresent = Test-Path -LiteralPath $ApplicationPath -PathType Leaf
-              $InstallRootPresent = Test-Path -LiteralPath $InstallRoot -PathType Container
-              if ($Entries.Count -eq 0 -and -not $ApplicationPresent -and -not $InstallRootPresent) {
-          '@
-          $Script = Replace-Required $Script $Old $New "installer-removal state"
-          
-          $Old = '  throw "Experimental Q uninstall did not complete within $TimeoutSeconds seconds; executable_present=$ApplicationPresent; remaining_registrations=$RegistrationJson"'
-          $New = '  throw "Experimental Q uninstall did not complete within $TimeoutSeconds seconds; executable_present=$ApplicationPresent; install_root_present=$InstallRootPresent; remaining_registrations=$RegistrationJson"'
-          $Script = Replace-Required $Script $Old $New "installer-removal error"
-          
-          $Old = '  param([Parameter(Mandatory)][IO.FileInfo]$Application)'
-          $New = @'
-            param(
-              [Parameter(Mandatory)][IO.FileInfo]$Application,
-              [int]$BackendStartupTimeoutSeconds = 120
-            )
-          '@
-          $Script = Replace-Required $Script $Old $New "backend startup parameters"
-          
-          $Old = @'
-              Start-Sleep -Seconds 15
-              if ($Process.HasExited) {
-                throw "Installed desktop exited during its launch smoke test with $($Process.ExitCode)."
-              }
-              if (-not (Get-Process -Name "q-backend" -ErrorAction SilentlyContinue)) {
-                throw "Installed desktop did not start its packaged backend sidecar."
-              }
-              if (Get-Process -Name "llama-server" -ErrorAction SilentlyContinue) {
-                throw "Installed desktop auto-started Q; launch must remain OFF."
-              }
-          '@
-          $New = @'
-              $BackendDeadline = [DateTime]::UtcNow.AddSeconds($BackendStartupTimeoutSeconds)
-              $BackendProcesses = @()
-              do {
-                if ($Process.HasExited) {
-                  throw "Installed desktop exited during its launch smoke test with $($Process.ExitCode)."
-                }
-                if (Get-Process -Name "llama-server" -ErrorAction SilentlyContinue) {
-                  throw "Installed desktop auto-started Q; launch must remain OFF."
-                }
-                $BackendProcesses = @(Get-Process -Name "q-backend" -ErrorAction SilentlyContinue)
-                if ($BackendProcesses.Count -gt 0) {
-                  break
-                }
-                Start-Sleep -Seconds 1
-              } while ([DateTime]::UtcNow -lt $BackendDeadline)
-              if ($BackendProcesses.Count -eq 0) {
-                $WorkspaceFiles = @(Get-ChildItem -LiteralPath $Workspace -Recurse -File -ErrorAction SilentlyContinue |
-                  Select-Object -First 30 -ExpandProperty FullName)
-                throw "Installed desktop did not start its packaged backend sidecar within $BackendStartupTimeoutSeconds seconds; desktop_pid=$($Process.Id); workspace_files=$($WorkspaceFiles -join ', ')."
-              }
-              Start-Sleep -Seconds 5
-              $StableBackendProcesses = @(Get-Process -Name "q-backend" -ErrorAction SilentlyContinue)
-              if ($StableBackendProcesses.Count -eq 0) {
-                throw "Installed packaged backend sidecar exited before the five-second stability check."
-              }
-              if (Get-Process -Name "llama-server" -ErrorAction SilentlyContinue) {
-                throw "Installed desktop auto-started Q; launch must remain OFF."
-              }
-          '@
-          $Script = Replace-Required $Script $Old $New "bounded backend startup"
-          
-          $Old = @'
-          # Tauri's NSIS template only enables SetAutoClose for passive (/P) and update
-          # uninstalls. Silent (/S) suppresses the UI but leaves its hidden InstFiles
-          # page open indefinitely. _?= keeps this process in the foreground so the
-          # smoke test observes the real exit code and post-uninstall state.
-          Invoke-ProcessWithTimeout $Uninstaller.FullName @("/P", "_?=$NsisRoot") 900
-          Wait-InstallerRemoval $NsisApplication.FullName
-          '@
-          $New = @'
-          # Tauri's NSIS template only enables SetAutoClose for passive (/P) and update
-          # uninstalls. NSIS normally copies the uninstaller to a temporary directory so
-          # it can remove the original and $INSTDIR. Reproduce that documented flow while
-          # using _?= to wait for the real exit code instead of the short-lived launcher.
-          $UninstallerRunner = Join-Path $SmokeRoot "nsis-uninstaller-runner.exe"
-          Copy-Item -LiteralPath $Uninstaller.FullName -Destination $UninstallerRunner -Force
-          try {
-            Invoke-ProcessWithTimeout $UninstallerRunner @("/P", "_?=$NsisRoot") 900
-          }
-          finally {
-            Remove-Item -LiteralPath $UninstallerRunner -Force -ErrorAction SilentlyContinue
-          }
-          Wait-InstallerRemoval $NsisApplication.FullName $NsisRoot
-          '@
-          $Script = Replace-Required $Script $Old $New "canonical NSIS uninstall"
-          
-          $Script = Replace-Required $Script 'Wait-InstallerRemoval $MsiApplication.FullName' 'Wait-InstallerRemoval $MsiApplication.FullName $EffectiveMsiRoot' "MSI root removal"
-          $Script = Replace-Required $Script '  nsis = [ordered]@{ install = "ok"; uac_scope = "per_machine"; launch_q_state = "OFF"; uninstall = "ok" }' '  nsis = [ordered]@{ install = "ok"; uac_scope = "per_machine"; launch_q_state = "OFF"; uninstall = "ok"; install_root_removed = $true }' "NSIS evidence"
-          $Script = Replace-Required $Script '  msi = [ordered]@{ install = "ok"; uac_scope = "per_machine"; layout = "ok"; launch_q_state = "OFF"; uninstall = "ok" }' '  msi = [ordered]@{ install = "ok"; uac_scope = "per_machine"; layout = "ok"; launch_q_state = "OFF"; uninstall = "ok"; install_root_removed = $true }' "MSI evidence"
-          Set-Content -LiteralPath $ScriptPath -Value $Script -Encoding UTF8 -NoNewline
-          
-          $TestPath = "experimental-q\tests\packaging\test_windows_layout.py"
-          $Test = Get-Content -LiteralPath $TestPath -Raw -Encoding UTF8
-          $Test = [Regex]::Replace($Test, '\r\n', [string][char]10)
-          $Old = '    assert "Test-ApplicationStartsOff $MsiApplication" in script'
-          $New = @'
-              assert "Test-ApplicationStartsOff $MsiApplication" in script
-              assert "$BackendStartupTimeoutSeconds = 120" in script
-              assert "$BackendDeadline = [DateTime]::UtcNow.AddSeconds" in script
-              assert "five-second stability check" in script
-          '@
-          $Test = Replace-Required $Test $Old $New "backend startup tests"
-          
-          $Old = @'
-              assert "Wait-InstallerRemoval $NsisApplication.FullName" in script
-              assert "Wait-InstallerRemoval $MsiApplication.FullName" in script
-              assert '@("/P", "_?=$NsisRoot") 900' in script
-          '@
-          $New = @'
-              assert "Wait-InstallerRemoval $NsisApplication.FullName $NsisRoot" in script
-              assert "Wait-InstallerRemoval $MsiApplication.FullName $EffectiveMsiRoot" in script
-              assert 'Copy-Item -LiteralPath $Uninstaller.FullName' in script
-              assert '$UninstallerRunner @("/P", "_?=$NsisRoot") 900' in script
-          '@
-          $Test = Replace-Required $Test $Old $New "canonical uninstall tests"
-          
-          $Old = '    assert "uninstall did not complete within $TimeoutSeconds seconds" in script'
-          $New = @'
-              assert "uninstall did not complete within $TimeoutSeconds seconds" in script
-              assert "install_root_present=$InstallRootPresent" in script
-              assert "install_root_removed = $true" in script
-          '@
-          $Test = Replace-Required $Test $Old $New "root-removal tests"
-          Set-Content -LiteralPath $TestPath -Value $Test -Encoding UTF8 -NoNewline
-          
-          if ((Get-Content -LiteralPath $ScriptPath -Raw) -notmatch 'BackendStartupTimeoutSeconds = 120') {
-            throw "RC19 bounded backend startup patch was not applied."
-          }
-          if ((Get-Content -LiteralPath $ScriptPath -Raw) -notmatch 'nsis-uninstaller-runner.exe') {
-            throw "RC19 canonical NSIS uninstall patch was not applied."
-          }
-
-      - name: Create reviewed RC19 source capsule
-        shell: pwsh
-        run: Compress-Archive -Path "experimental-q" -DestinationPath "ExperimentalQ-0.3.0-source-rc19.zip" -CompressionLevel Optimal
-
-      - name: Upload reviewed RC19 source capsule
+      - name: Upload reviewed RC20 source capsule
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: ExperimentalQ-0.3.0-source-rc19
-          path: ExperimentalQ-0.3.0-source-rc19.zip
+          name: ExperimentalQ-0.3.0-source-rc20
+          path: ExperimentalQ-0.3.0-source-rc20.zip
           if-no-files-found: error
           retention-days: 14
 
@@ -265,7 +89,7 @@ jobs:
           toolchain: stable
           components: clippy,rustfmt
 
-      - name: Validate Python contracts and RC19 acceptance gates
+      - name: Validate Python contracts and RC20 acceptance gates
         shell: pwsh
         working-directory: experimental-q
         run: |
@@ -341,35 +165,199 @@ jobs:
             ./scripts/build_windows.ps1 -RequireSigning
           }
 
-      - name: Preserve RC19 NSIS candidate before acceptance
+      - name: Split oversized installers into verified delivery parts
+        shell: pwsh
+        run: |
+          $ReleaseRoot = Resolve-Path "experimental-q\release"
+          $ChunkRoot = Join-Path $env:GITHUB_WORKSPACE "experimental-q\release-chunks"
+          New-Item -ItemType Directory -Force -Path $ChunkRoot | Out-Null
+          
+          function Split-Installer {
+            param(
+              [Parameter(Mandatory)][string]$Path,
+              [Parameter(Mandatory)][string]$Prefix
+            )
+            $ChunkSize = 400MB
+            $Buffer = [byte[]]::new(8MB)
+            $Input = [IO.File]::OpenRead($Path)
+            $Parts = @()
+            try {
+              $Index = 0
+              while ($Input.Position -lt $Input.Length) {
+                $OutputPath = Join-Path $ChunkRoot ("{0}.part{1:D2}" -f $Prefix, $Index)
+                $Output = [IO.File]::Create($OutputPath)
+                try {
+                  $Remaining = [Math]::Min([long]$ChunkSize, $Input.Length - $Input.Position)
+                  while ($Remaining -gt 0) {
+                    $ToRead = [int][Math]::Min([long]$Buffer.Length, $Remaining)
+                    $Read = $Input.Read($Buffer, 0, $ToRead)
+                    if ($Read -le 0) {
+                      throw "Unexpected end of installer while creating $OutputPath."
+                    }
+                    $Output.Write($Buffer, 0, $Read)
+                    $Remaining -= $Read
+                  }
+                }
+                finally {
+                  $Output.Dispose()
+                }
+                $Part = Get-Item -LiteralPath $OutputPath
+                $Parts += [ordered]@{
+                  file = $Part.Name
+                  index = $Index
+                  size_bytes = $Part.Length
+                  sha256 = (Get-FileHash -LiteralPath $Part.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+                }
+                $Index += 1
+              }
+            }
+            finally {
+              $Input.Dispose()
+            }
+            if ($Parts.Count -ne 5) {
+              throw "$Prefix was expected to produce five sub-512MB parts; observed $($Parts.Count)."
+            }
+            $Installer = Get-Item -LiteralPath $Path
+            return [ordered]@{
+              file = $Installer.Name
+              size_bytes = $Installer.Length
+              sha256 = (Get-FileHash -LiteralPath $Installer.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+              parts = $Parts
+            }
+          }
+          
+          $Nsis = @(Get-ChildItem -LiteralPath $ReleaseRoot -File -Filter "*.exe")
+          $Msi = @(Get-ChildItem -LiteralPath $ReleaseRoot -File -Filter "*.msi")
+          if ($Nsis.Count -ne 1 -or $Msi.Count -ne 1) {
+            throw "Chunking requires exactly one NSIS and one MSI installer."
+          }
+          [ordered]@{
+            format_version = 1
+            chunk_size_bytes = 419430400
+            nsis = Split-Installer $Nsis[0].FullName "nsis"
+            msi = Split-Installer $Msi[0].FullName "msi"
+          } | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $ChunkRoot "chunks-manifest.json") -Encoding UTF8
+
+      - name: Preserve RC20 NSIS candidate before acceptance
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: ExperimentalQ-0.3.0-Windows-NSIS-candidate-rc19
+          name: ExperimentalQ-0.3.0-Windows-NSIS-candidate-rc20
           path: experimental-q/release/*.exe
           if-no-files-found: error
           retention-days: 14
           compression-level: 0
 
-      - name: Preserve RC19 MSI candidate before acceptance
+      - name: Preserve RC20 MSI candidate before acceptance
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: ExperimentalQ-0.3.0-Windows-MSI-candidate-rc19
+          name: ExperimentalQ-0.3.0-Windows-MSI-candidate-rc20
           path: experimental-q/release/*.msi
           if-no-files-found: error
           retention-days: 14
           compression-level: 0
 
-      - name: Preserve RC19 build evidence before acceptance
+      - name: Preserve RC20 build evidence before acceptance
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: ExperimentalQ-0.3.0-Windows-evidence-candidate-rc19
+          name: ExperimentalQ-0.3.0-Windows-evidence-candidate-rc20
           path: |
             experimental-q/release/release-manifest.json
             experimental-q/vendor/dependency-provenance.json
             experimental-q/vendor/runtime-sources.lock.json
             experimental-q/Cargo.lock
+            experimental-q/release-chunks/chunks-manifest.json
           if-no-files-found: error
           retention-days: 14
+
+      - name: Upload RC20 NSIS delivery part 00
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ExperimentalQ-0.3.0-Windows-NSIS-part00-rc20
+          path: experimental-q/release-chunks/nsis.part00
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+      - name: Upload RC20 NSIS delivery part 01
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ExperimentalQ-0.3.0-Windows-NSIS-part01-rc20
+          path: experimental-q/release-chunks/nsis.part01
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+      - name: Upload RC20 NSIS delivery part 02
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ExperimentalQ-0.3.0-Windows-NSIS-part02-rc20
+          path: experimental-q/release-chunks/nsis.part02
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+      - name: Upload RC20 NSIS delivery part 03
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ExperimentalQ-0.3.0-Windows-NSIS-part03-rc20
+          path: experimental-q/release-chunks/nsis.part03
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+      - name: Upload RC20 NSIS delivery part 04
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ExperimentalQ-0.3.0-Windows-NSIS-part04-rc20
+          path: experimental-q/release-chunks/nsis.part04
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+      - name: Upload RC20 MSI delivery part 00
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ExperimentalQ-0.3.0-Windows-MSI-part00-rc20
+          path: experimental-q/release-chunks/msi.part00
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+      - name: Upload RC20 MSI delivery part 01
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ExperimentalQ-0.3.0-Windows-MSI-part01-rc20
+          path: experimental-q/release-chunks/msi.part01
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+      - name: Upload RC20 MSI delivery part 02
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ExperimentalQ-0.3.0-Windows-MSI-part02-rc20
+          path: experimental-q/release-chunks/msi.part02
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+      - name: Upload RC20 MSI delivery part 03
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ExperimentalQ-0.3.0-Windows-MSI-part03-rc20
+          path: experimental-q/release-chunks/msi.part03
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+      - name: Upload RC20 MSI delivery part 04
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ExperimentalQ-0.3.0-Windows-MSI-part04-rc20
+          path: experimental-q/release-chunks/msi.part04
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
 
       - name: Install, launch-off, and uninstall both packages
         shell: pwsh
