@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - experimental-q-build
+      - fix/backend-startup-timeout
 
 permissions:
   contents: read
@@ -55,11 +56,20 @@ jobs:
 
 
 
+      - name: Apply reviewed startup repair
+        shell: pwsh
+        run: |
+          git apply --check --directory=experimental-q backend-startup.patch
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git apply --directory=experimental-q backend-startup.patch
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Compress-Archive -Path experimental-q -DestinationPath ExperimentalQ-0.3.0-source-startup-fix.zip
+
       - name: Upload reviewed RC20 source capsule
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: ExperimentalQ-0.3.0-source-rc20
-          path: ExperimentalQ-0.3.0-source-rc20.zip
+          name: ExperimentalQ-0.3.0-source-startup-fix
+          path: ExperimentalQ-0.3.0-source-startup-fix.zip
           if-no-files-found: error
           retention-days: 14
 
@@ -436,3 +446,4 @@ jobs:
           Invoke-RestMethod -Method Post -Headers $Headers -ContentType "application/json" `
             -Uri "${{ github.api_url }}/repos/${{ github.repository }}/statuses/${{ github.sha }}" `
             -Body $Body | Out-Null
+

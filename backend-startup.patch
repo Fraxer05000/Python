@@ -1,0 +1,58 @@
+diff --git a/apps/desktop/src-tauri/src/lib.rs b/apps/desktop/src-tauri/src/lib.rs
+index 5731e81..35d038f 100644
+--- a/apps/desktop/src-tauri/src/lib.rs
++++ b/apps/desktop/src-tauri/src/lib.rs
+@@ -206,6 +206,16 @@ fn start_backend(
+     } else {
+         Command::new(runtime_root.join("bin/q-backend.exe"))
+     };
++    // One-file sidecars unpack before importing the scientific Python stack.
++    let log_directory = workspace.join("Logs");
++    std::fs::create_dir_all(&log_directory)
++        .map_err(|error| format!("Could not create backend log directory: {error}"))?;
++    let log_path = log_directory.join(format!("backend-startup-{}.log", Uuid::new_v4()));
++    let log_file = std::fs::File::create(&log_path)
++        .map_err(|error| format!("Could not create backend startup log: {error}"))?;
++    let stdout_log = log_file
++        .try_clone()
++        .map_err(|error| format!("Could not clone backend startup log: {error}"))?;
+     command
+         .env("Q_BACKEND_HOST", "127.0.0.1")
+         .env("Q_BACKEND_PORT", port.to_string())
+@@ -226,19 +236,20 @@ fn start_backend(
+         .env("PYTHONPATH", development_root.join("apps/backend"))
+         .current_dir(runtime_root)
+         .stdin(Stdio::null())
+-        .stdout(Stdio::null())
+-        .stderr(Stdio::null());
++        .stdout(Stdio::from(stdout_log))
++        .stderr(Stdio::from(log_file));
+     let mut child = ManagedChild::spawn(command)
+         .map_err(|error| format!("Could not start the packaged backend sidecar: {error}"))?;
+ 
+     let started = Instant::now();
+-    while started.elapsed() < Duration::from_secs(15) {
++    while started.elapsed() < Duration::from_secs(120) {
+         if let Some(status) = child
+             .try_wait()
+             .map_err(|error| format!("Could not inspect backend sidecar: {error}"))?
+         {
+             return Err(format!(
+-                "Backend sidecar exited during startup with {status}."
++                "Backend sidecar exited during startup with {status}. See {}",
++                log_path.display()
+             ));
+         }
+         if TcpStream::connect(("127.0.0.1", port)).is_ok() {
+@@ -250,7 +261,10 @@ fn start_backend(
+         thread::sleep(Duration::from_millis(80));
+     }
+     let _ = child.terminate_and_wait();
+-    Err("Backend sidecar did not become reachable before timeout.".to_owned())
++    Err(format!(
++        "Backend sidecar did not become reachable within 120 seconds. See {}",
++        log_path.display()
++    ))
+ }
+ 
+ #[tauri::command]
