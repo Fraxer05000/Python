@@ -1,10 +1,11 @@
-name: Experimental Q Windows RC20 one-click build
+name: Experimental Q 0.4 local assistant Windows build
 
 on:
   push:
     branches:
       - experimental-q-build
       - fix/backend-startup-timeout
+      - feature/lab-assistant-0.4
 
 permissions:
   contents: read
@@ -56,20 +57,20 @@ jobs:
 
 
 
-      - name: Apply reviewed startup repair
+      - name: Apply reviewed local laboratory assistant changes
         shell: pwsh
         run: |
-          git apply --check --directory=experimental-q backend-startup.patch
+          git apply --check --directory=experimental-q lab-assistant-0.4.patch
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          git apply --directory=experimental-q backend-startup.patch
+          git apply --directory=experimental-q lab-assistant-0.4.patch
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          Compress-Archive -Path experimental-q -DestinationPath ExperimentalQ-0.3.0-source-startup-fix.zip
+          Compress-Archive -Path experimental-q -DestinationPath ExperimentalQ-0.4.0-source-lab-assistant.zip
 
       - name: Upload reviewed RC20 source capsule
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: ExperimentalQ-0.3.0-source-startup-fix
-          path: ExperimentalQ-0.3.0-source-startup-fix.zip
+          name: ExperimentalQ-0.4.0-source-lab-assistant
+          path: ExperimentalQ-0.4.0-source-lab-assistant.zip
           if-no-files-found: error
           retention-days: 14
 
@@ -224,8 +225,8 @@ jobs:
             finally {
               $Input.Dispose()
             }
-            if ($Parts.Count -ne 5) {
-              throw "$Prefix was expected to produce five sub-512MB parts; observed $($Parts.Count)."
+            if ($Parts.Count -gt 8) {
+              throw "$Prefix exceeded eight sub-512MB delivery parts; observed $($Parts.Count)."
             }
             $Installer = Get-Item -LiteralPath $Path
             return [ordered]@{
@@ -251,7 +252,7 @@ jobs:
       - name: Preserve RC20 NSIS candidate before acceptance
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: ExperimentalQ-0.3.0-Windows-NSIS-candidate-rc20
+          name: ExperimentalQ-0.4.0-Windows-NSIS-candidate-rc20
           path: experimental-q/release/*.exe
           if-no-files-found: error
           retention-days: 14
@@ -260,7 +261,7 @@ jobs:
       - name: Preserve RC20 MSI candidate before acceptance
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: ExperimentalQ-0.3.0-Windows-MSI-candidate-rc20
+          name: ExperimentalQ-0.4.0-Windows-MSI-candidate-rc20
           path: experimental-q/release/*.msi
           if-no-files-found: error
           retention-days: 14
@@ -269,7 +270,7 @@ jobs:
       - name: Preserve RC20 build evidence before acceptance
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: ExperimentalQ-0.3.0-Windows-evidence-candidate-rc20
+          name: ExperimentalQ-0.4.0-Windows-evidence-candidate-rc20
           path: |
             experimental-q/release/release-manifest.json
             experimental-q/vendor/dependency-provenance.json
@@ -282,7 +283,7 @@ jobs:
       - name: Upload RC20 NSIS delivery part 00
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: ExperimentalQ-0.3.0-Windows-NSIS-part00-rc20
+          name: ExperimentalQ-0.4.0-Windows-NSIS-part00-rc20
           path: experimental-q/release-chunks/nsis.part00
           if-no-files-found: error
           retention-days: 14
@@ -291,7 +292,7 @@ jobs:
       - name: Upload RC20 NSIS delivery part 01
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: ExperimentalQ-0.3.0-Windows-NSIS-part01-rc20
+          name: ExperimentalQ-0.4.0-Windows-NSIS-part01-rc20
           path: experimental-q/release-chunks/nsis.part01
           if-no-files-found: error
           retention-days: 14
@@ -300,7 +301,7 @@ jobs:
       - name: Upload RC20 NSIS delivery part 02
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: ExperimentalQ-0.3.0-Windows-NSIS-part02-rc20
+          name: ExperimentalQ-0.4.0-Windows-NSIS-part02-rc20
           path: experimental-q/release-chunks/nsis.part02
           if-no-files-found: error
           retention-days: 14
@@ -309,7 +310,7 @@ jobs:
       - name: Upload RC20 NSIS delivery part 03
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: ExperimentalQ-0.3.0-Windows-NSIS-part03-rc20
+          name: ExperimentalQ-0.4.0-Windows-NSIS-part03-rc20
           path: experimental-q/release-chunks/nsis.part03
           if-no-files-found: error
           retention-days: 14
@@ -318,16 +319,16 @@ jobs:
       - name: Upload RC20 NSIS delivery part 04
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: ExperimentalQ-0.3.0-Windows-NSIS-part04-rc20
+          name: ExperimentalQ-0.4.0-Windows-NSIS-part04-rc20
           path: experimental-q/release-chunks/nsis.part04
-          if-no-files-found: error
+          if-no-files-found: ignore
           retention-days: 14
           compression-level: 0
 
       - name: Upload RC20 MSI delivery part 00
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: ExperimentalQ-0.3.0-Windows-MSI-part00-rc20
+          name: ExperimentalQ-0.4.0-Windows-MSI-part00-rc20
           path: experimental-q/release-chunks/msi.part00
           if-no-files-found: error
           retention-days: 14
@@ -336,7 +337,7 @@ jobs:
       - name: Upload RC20 MSI delivery part 01
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: ExperimentalQ-0.3.0-Windows-MSI-part01-rc20
+          name: ExperimentalQ-0.4.0-Windows-MSI-part01-rc20
           path: experimental-q/release-chunks/msi.part01
           if-no-files-found: error
           retention-days: 14
@@ -345,7 +346,7 @@ jobs:
       - name: Upload RC20 MSI delivery part 02
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: ExperimentalQ-0.3.0-Windows-MSI-part02-rc20
+          name: ExperimentalQ-0.4.0-Windows-MSI-part02-rc20
           path: experimental-q/release-chunks/msi.part02
           if-no-files-found: error
           retention-days: 14
@@ -354,7 +355,7 @@ jobs:
       - name: Upload RC20 MSI delivery part 03
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: ExperimentalQ-0.3.0-Windows-MSI-part03-rc20
+          name: ExperimentalQ-0.4.0-Windows-MSI-part03-rc20
           path: experimental-q/release-chunks/msi.part03
           if-no-files-found: error
           retention-days: 14
@@ -363,13 +364,67 @@ jobs:
       - name: Upload RC20 MSI delivery part 04
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: ExperimentalQ-0.3.0-Windows-MSI-part04-rc20
+          name: ExperimentalQ-0.4.0-Windows-MSI-part04-rc20
           path: experimental-q/release-chunks/msi.part04
-          if-no-files-found: error
+          if-no-files-found: ignore
           retention-days: 14
           compression-level: 0
 
-      - name: Install, launch-off, and uninstall both packages
+      - name: Upload optional NSIS delivery part 05
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ExperimentalQ-0.4.0-Windows-NSIS-part05-rc20
+          path: experimental-q/release-chunks/nsis.part05
+          if-no-files-found: ignore
+          retention-days: 14
+          compression-level: 0
+
+      - name: Upload optional NSIS delivery part 06
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ExperimentalQ-0.4.0-Windows-NSIS-part06-rc20
+          path: experimental-q/release-chunks/nsis.part06
+          if-no-files-found: ignore
+          retention-days: 14
+          compression-level: 0
+
+      - name: Upload optional NSIS delivery part 07
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ExperimentalQ-0.4.0-Windows-NSIS-part07-rc20
+          path: experimental-q/release-chunks/nsis.part07
+          if-no-files-found: ignore
+          retention-days: 14
+          compression-level: 0
+
+      - name: Upload optional MSI delivery part 05
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ExperimentalQ-0.4.0-Windows-MSI-part05-rc20
+          path: experimental-q/release-chunks/msi.part05
+          if-no-files-found: ignore
+          retention-days: 14
+          compression-level: 0
+
+      - name: Upload optional MSI delivery part 06
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ExperimentalQ-0.4.0-Windows-MSI-part06-rc20
+          path: experimental-q/release-chunks/msi.part06
+          if-no-files-found: ignore
+          retention-days: 14
+          compression-level: 0
+
+      - name: Upload optional MSI delivery part 07
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ExperimentalQ-0.4.0-Windows-MSI-part07-rc20
+          path: experimental-q/release-chunks/msi.part07
+          if-no-files-found: ignore
+          retention-days: 14
+          compression-level: 0
+
+      - name: Install, verify OFF and local inference, and uninstall both packages
         shell: pwsh
         working-directory: experimental-q
         run: ./scripts/smoke_test_windows_installers.ps1
@@ -379,7 +434,7 @@ jobs:
       - name: Upload one-click NSIS installer
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: ExperimentalQ-0.3.0-Windows-NSIS-accepted
+          name: ExperimentalQ-0.4.0-Windows-NSIS-accepted
           path: experimental-q/release/*.exe
           if-no-files-found: error
           retention-days: 14
@@ -388,7 +443,7 @@ jobs:
       - name: Upload MSI installer
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: ExperimentalQ-0.3.0-Windows-MSI-accepted
+          name: ExperimentalQ-0.4.0-Windows-MSI-accepted
           path: experimental-q/release/*.msi
           if-no-files-found: error
           retention-days: 14
@@ -397,10 +452,12 @@ jobs:
       - name: Upload release manifests and Windows evidence
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: ExperimentalQ-0.3.0-Windows-evidence-accepted
+          name: ExperimentalQ-0.4.0-Windows-evidence-accepted
           path: |
             experimental-q/release/release-manifest.json
             experimental-q/release/windows-smoke-report.json
+            experimental-q/release/*-native-acceptance.json
+            experimental-q/installer/vision-model.lock.json
             experimental-q/vendor/dependency-provenance.json
             experimental-q/vendor/runtime-sources.lock.json
             experimental-q/Cargo.lock
@@ -413,9 +470,10 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: ExperimentalQ-0.3.0-Windows-failure-diagnostics
+          name: ExperimentalQ-0.4.0-Windows-failure-diagnostics
           path: |
             experimental-q/build/native-runtime-smoke/*.log
+            experimental-q/release/*-native-acceptance.log
             ${{ runner.temp }}/experimental-q-installer-smoke/*.log
           if-no-files-found: ignore
           retention-days: 7
@@ -446,4 +504,3 @@ jobs:
           Invoke-RestMethod -Method Post -Headers $Headers -ContentType "application/json" `
             -Uri "${{ github.api_url }}/repos/${{ github.repository }}/statuses/${{ github.sha }}" `
             -Body $Body | Out-Null
-
