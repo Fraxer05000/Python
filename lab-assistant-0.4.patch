@@ -2327,7 +2327,7 @@ diff --git a/apps/desktop/src-tauri/src/supervisor.rs b/apps/desktop/src-tauri/s
                  return Ok(());
              }
              thread::sleep(HEALTH_INTERVAL);
-@@ -540,6 +546,56 @@
+@@ -540,6 +546,61 @@
      }
  }
  
@@ -2373,18 +2373,23 @@ diff --git a/apps/desktop/src-tauri/src/supervisor.rs b/apps/desktop/src-tauri/s
 +    let Some((headers, body)) = response.split_once("\r\n\r\n") else {
 +        return Ok(false);
 +    };
-+    let mut status = headers.lines().next().unwrap_or("").split_ascii_whitespace();
++    let mut status = headers
++        .lines()
++        .next()
++        .unwrap_or("")
++        .split_ascii_whitespace();
 +    if !matches!(status.next(), Some("HTTP/1.0" | "HTTP/1.1")) || status.next() != Some("200") {
 +        return Ok(false);
 +    }
 +    let body = serde_json::from_str::<serde_json::Value>(body);
-+    Ok(body.is_ok_and(|value| value.get("status").and_then(serde_json::Value::as_str) == Some("ok")))
++    Ok(body
++        .is_ok_and(|value| value.get("status").and_then(serde_json::Value::as_str) == Some("ok")))
 +}
 +
  fn collect_output<R>(mut reader: R) -> JoinHandle<std::io::Result<(Vec<u8>, bool)>>
  where
      R: Read + Send + 'static,
-@@ -726,7 +782,69 @@
+@@ -726,7 +787,69 @@
  
  #[cfg(test)]
  mod tests {
