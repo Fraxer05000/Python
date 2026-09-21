@@ -2344,7 +2344,7 @@ diff --git a/apps/desktop/src-tauri/tauri.conf.json b/apps/desktop/src-tauri/tau
      "publisher": "Experimental Q",
      "category": "Productivity",
      "licenseFile": "../../../LICENSE",
-@@ -36,7 +42,10 @@
+@@ -36,11 +42,15 @@
        "resources/": "resources/"
      },
      "windows": {
@@ -2356,6 +2356,11 @@ diff --git a/apps/desktop/src-tauri/tauri.conf.json b/apps/desktop/src-tauri/tau
        "wix": {
          "upgradeCode": "a3f9dc83-86b0-4e89-9c7c-2a138b07cb8e"
        },
+       "nsis": {
++        "compression": "none",
+         "installMode": "perMachine",
+         "displayLanguageSelector": false,
+         "installerHooks": "../../../installer/nsis/installer-hooks.nsh",
 diff --git a/apps/desktop/src-tauri/src/control_server.rs b/apps/desktop/src-tauri/src/control_server.rs
 --- a/apps/desktop/src-tauri/src/control_server.rs
 +++ b/apps/desktop/src-tauri/src/control_server.rs
@@ -2826,7 +2831,7 @@ diff --git a/docs/RELEASE_0.4.0.md b/docs/RELEASE_0.4.0.md
 new file mode 100644
 --- /dev/null
 +++ b/docs/RELEASE_0.4.0.md
-@@ -0,0 +1,51 @@
+@@ -0,0 +1,53 @@
 +# Experimental Q 0.4.0 — asistente local de laboratorio
 +
 +## Correcciones verificables
@@ -2844,6 +2849,8 @@ new file mode 100644
 +| El dictado podía terminar después de cambiar de proyecto | Cancela capturas y descarta respuestas tardías al navegar | Pruebas con permisos y transcripciones demoradas |
 +| Un puerto abierto se interpretaba como modelo listo | Se exige respuesta HTTP satisfactoria y estado saludable del modelo | Pruebas del supervisor para carga pendiente, tiempo agotado y respuesta inválida |
 +| Windows heredaba el modo no bloqueante en conexiones internas y podía rechazar peticiones antes de recibirlas | Cada conexión aceptada espera los datos con los límites de lectura y escritura existentes | Regresión con petición demorada; comprobación completa de la aplicación instalada |
++| Las salidas de dictado, Python y SQL usaban la codificación regional de Windows y dañaban acentos al leerlas como UTF-8 | Los trabajadores transmiten JSON ASCII con escapes Unicode, conservando el texto completo | Pruebas con bitácora, µ y Ω sobre una salida Windows cp1252; dictado real del instalador |
++| La compresión del instalador tardaba mucho y apenas reducía los modelos incluidos | NSIS sin compresión adicional, con los mismos componentes locales | Verificación de integridad e instalación; aumenta ligeramente el tamaño del paquete |
 +| El modelo podía traducir enums o reutilizar identificadores de ejemplo | Órdenes directas de bitácora usan argumentos tipados; identificadores asignados por Q y vista previa del registro | Confirmación única, rechazo sin escritura y conversación real con consulta posterior |
 +| Lista de controladores fija en pantalla | Catálogo del servicio y descubrimiento de cámara, audio, USB, puertos y Bluetooth | Consulta autenticada y comando fijo de lectura de dispositivos |
 +| La prueba de cierre de procesos ocultaba errores y dependía de una espera fija | Captura diagnósticos, detecta salida temprana y espera señales de inicio/cierre con límites de tiempo | Ocho pruebas del supervisor aprobadas en Windows; dependencias Rust fijadas en Cargo.lock |
@@ -2972,6 +2979,42 @@ new file mode 100644
 +    }
 +  ]
 +}
+diff --git a/runtimes/audio_worker/main.py b/runtimes/audio_worker/main.py
+--- a/runtimes/audio_worker/main.py
++++ b/runtimes/audio_worker/main.py
+@@ -80,7 +80,7 @@
+ 
+ 
+ def _emit(value: dict[str, object]) -> int:
+-    sys.stdout.write(json.dumps(value, ensure_ascii=False, separators=(",", ":")))
++    sys.stdout.write(json.dumps(value, ensure_ascii=True, separators=(",", ":")))
+     return 0 if value.get("status") == "ok" else 2
+ 
+ 
+diff --git a/runtimes/python_worker/main.py b/runtimes/python_worker/main.py
+--- a/runtimes/python_worker/main.py
++++ b/runtimes/python_worker/main.py
+@@ -117,7 +117,7 @@
+ 
+ 
+ def _emit(value: dict[str, object]) -> int:
+-    encoded = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
++    encoded = json.dumps(value, ensure_ascii=True, separators=(",", ":"))
+     sys.stdout.write(encoded[:_MAX_OUTPUT])
+     sys.stdout.flush()
+     return 0 if value.get("status") == "ok" else 2
+diff --git a/runtimes/sql_worker/main.py b/runtimes/sql_worker/main.py
+--- a/runtimes/sql_worker/main.py
++++ b/runtimes/sql_worker/main.py
+@@ -96,7 +96,7 @@
+ 
+ 
+ def _emit(value: dict[str, object]) -> int:
+-    sys.stdout.write(json.dumps(value, ensure_ascii=False, default=str, separators=(",", ":")))
++    sys.stdout.write(json.dumps(value, ensure_ascii=True, default=str, separators=(",", ":")))
+     sys.stdout.flush()
+     return 0 if value.get("status") == "ok" else 2
+ 
 diff --git a/scripts/build_windows.ps1 b/scripts/build_windows.ps1
 --- a/scripts/build_windows.ps1
 +++ b/scripts/build_windows.ps1
@@ -3676,3 +3719,34 @@ new file mode 100644
 +        )
 +    assert result.content == "Registro consultado"
 +    assert result.usage == {"prompt_tokens": 10, "completion_tokens": 4, "total_tokens": 14}
+diff --git a/tests/unit/test_worker_json_transport.py b/tests/unit/test_worker_json_transport.py
+new file mode 100644
+--- /dev/null
++++ b/tests/unit/test_worker_json_transport.py
+@@ -0,0 +1,26 @@
++from __future__ import annotations
++
++import importlib
++import io
++import json
++
++import pytest
++
++
++@pytest.mark.parametrize("worker_name", ["audio_worker", "python_worker", "sql_worker"])
++def test_worker_json_preserves_unicode_with_windows_pipe_encoding(
++    worker_name: str, monkeypatch: pytest.MonkeyPatch
++) -> None:
++    worker = importlib.import_module(f"runtimes.{worker_name}.main")
++    value: dict[str, object] = {"status": "ok", "text": "bitácora µ Ω"}
++    buffer = io.BytesIO()
++    with io.TextIOWrapper(buffer, encoding="cp1252") as stdout:
++        with monkeypatch.context() as patch:
++            patch.setattr(worker.sys, "stdout", stdout)
++            result = worker._emit(value)
++            stdout.flush()
++        encoded = buffer.getvalue()
++
++    assert result == 0
++    assert encoded.isascii()
++    assert json.loads(encoded.decode("utf-8")) == value
