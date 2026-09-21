@@ -2356,6 +2356,80 @@ diff --git a/apps/desktop/src-tauri/tauri.conf.json b/apps/desktop/src-tauri/tau
        "wix": {
          "upgradeCode": "a3f9dc83-86b0-4e89-9c7c-2a138b07cb8e"
        },
+diff --git a/apps/desktop/src-tauri/src/control_server.rs b/apps/desktop/src-tauri/src/control_server.rs
+--- a/apps/desktop/src-tauri/src/control_server.rs
++++ b/apps/desktop/src-tauri/src/control_server.rs
+@@ -168,6 +168,12 @@
+     runtime_executable: &std::path::Path,
+     worker_commands: &WorkerCommands,
+ ) {
++    // Windows accepts inherit the listener's nonblocking mode. Requests can
++    // arrive after accept, so restore blocking I/O before applying timeouts.
++    if let Err(error) = stream.set_nonblocking(false) {
++        tracing::warn!(%error, "Could not configure supervisor connection");
++        return;
++    }
+     let _ = stream.set_read_timeout(Some(Duration::from_secs(3)));
+     let _ = stream.set_write_timeout(Some(Duration::from_secs(130)));
+     let mut line = String::new();
+@@ -328,7 +334,56 @@
+ 
+ #[cfg(test)]
+ mod tests {
+-    use super::constant_time_equal;
++    use super::*;
++
++    #[test]
++    fn accepted_connection_waits_for_delayed_request() -> Result<(), Box<dyn std::error::Error>> {
++        let listener = TcpListener::bind(("127.0.0.1", 0))?;
++        listener.set_nonblocking(true)?;
++        let mut client = TcpStream::connect(listener.local_addr()?)?;
++        client.set_read_timeout(Some(Duration::from_secs(5)))?;
++        let (stream, _) = listener.accept()?;
++        // Reproduce the mode inherited by accepted sockets on Windows on every OS.
++        stream.set_nonblocking(true)?;
++        let (started, ready) = std::sync::mpsc::channel();
++        let handler = thread::spawn(move || {
++            let supervisor = Arc::new(Mutex::new(Supervisor::new(
++                std::env::temp_dir(),
++                std::env::temp_dir(),
++            )));
++            let command = WorkerCommand {
++                program: PathBuf::from("unused-worker"),
++                fixed_args: Vec::new(),
++            };
++            let commands = WorkerCommands {
++                python: command.clone(),
++                sql: command.clone(),
++                package: command.clone(),
++                r: command.clone(),
++                audio: command,
++            };
++            let _ = started.send(());
++            handle_connection(
++                stream,
++                "test-token",
++                &supervisor,
++                std::path::Path::new("unused-runtime"),
++                &commands,
++            );
++        });
++        ready.recv_timeout(Duration::from_secs(5))?;
++        thread::sleep(Duration::from_millis(150));
++        let write_result = client.write_all(b"{\"token\":\"test-token\",\"action\":\"state\"}\n");
++        let mut response = String::new();
++        let read_result = BufReader::new(client).read_line(&mut response);
++        assert!(handler.join().is_ok());
++        write_result?;
++        read_result?;
++        let response: serde_json::Value = serde_json::from_str(&response)?;
++        assert_eq!(response["status"], "ok");
++        assert_eq!(response["data"]["state"], "OFF");
++        Ok(())
++    }
+ 
+     #[test]
+     fn constant_time_comparison_requires_exact_value() {
 diff --git a/apps/desktop/src-tauri/src/lib.rs b/apps/desktop/src-tauri/src/lib.rs
 --- a/apps/desktop/src-tauri/src/lib.rs
 +++ b/apps/desktop/src-tauri/src/lib.rs
@@ -2752,7 +2826,7 @@ diff --git a/docs/RELEASE_0.4.0.md b/docs/RELEASE_0.4.0.md
 new file mode 100644
 --- /dev/null
 +++ b/docs/RELEASE_0.4.0.md
-@@ -0,0 +1,50 @@
+@@ -0,0 +1,51 @@
 +# Experimental Q 0.4.0 — asistente local de laboratorio
 +
 +## Correcciones verificables
@@ -2769,6 +2843,7 @@ new file mode 100644
 +| No había reconocimiento visual integrado | COCO-SSD local, sin descarga en ejecución; análisis espaciado y sin solapamiento | Integridad de archivos; pruebas de cierre y permiso tardío |
 +| El dictado podía terminar después de cambiar de proyecto | Cancela capturas y descarta respuestas tardías al navegar | Pruebas con permisos y transcripciones demoradas |
 +| Un puerto abierto se interpretaba como modelo listo | Se exige respuesta HTTP satisfactoria y estado saludable del modelo | Pruebas del supervisor para carga pendiente, tiempo agotado y respuesta inválida |
++| Windows heredaba el modo no bloqueante en conexiones internas y podía rechazar peticiones antes de recibirlas | Cada conexión aceptada espera los datos con los límites de lectura y escritura existentes | Regresión con petición demorada; comprobación completa de la aplicación instalada |
 +| El modelo podía traducir enums o reutilizar identificadores de ejemplo | Órdenes directas de bitácora usan argumentos tipados; identificadores asignados por Q y vista previa del registro | Confirmación única, rechazo sin escritura y conversación real con consulta posterior |
 +| Lista de controladores fija en pantalla | Catálogo del servicio y descubrimiento de cámara, audio, USB, puertos y Bluetooth | Consulta autenticada y comando fijo de lectura de dispositivos |
 +| La prueba de cierre de procesos ocultaba errores y dependía de una espera fija | Captura diagnósticos, detecta salida temprana y espera señales de inicio/cierre con límites de tiempo | Ocho pruebas del supervisor aprobadas en Windows; dependencias Rust fijadas en Cargo.lock |
